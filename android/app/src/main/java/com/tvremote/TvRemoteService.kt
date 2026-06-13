@@ -59,7 +59,7 @@ class TvRemoteService : Service() {
         val dm = DisplayMetrics()
         @Suppress("DEPRECATION")
         if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.R) {
-            val bounds = windowManager.currentWindowMetrics.bounds
+            val bounds = wm.currentWindowMetrics.bounds
             screenW = bounds.width()
             screenH = bounds.height()
         } else {
