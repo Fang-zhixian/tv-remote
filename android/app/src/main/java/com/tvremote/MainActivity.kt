@@ -6,6 +6,7 @@ import android.net.Uri
 import android.os.Build
 import android.os.Bundle
 import android.provider.Settings
+import android.util.Log
 import android.widget.Button
 import android.widget.EditText
 import android.widget.TextView
@@ -84,21 +85,30 @@ class MainActivity : AppCompatActivity() {
 
         // Request ignore battery optimization
         if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.M) {
-            val pm = getSystemService(POWER_SERVICE) as android.os.PowerManager
-            if (!pm.isIgnoringBatteryOptimizations(packageName)) {
-                try {
+            try {
+                val pm = getSystemService(POWER_SERVICE) as android.os.PowerManager
+                if (!pm.isIgnoringBatteryOptimizations(packageName)) {
                     val intent = android.content.Intent(Settings.ACTION_REQUEST_IGNORE_BATTERY_OPTIMIZATIONS).apply {
                         data = Uri.parse("package:$packageName")
                     }
-                    startActivity(intent)
-                } catch (_: Exception) {}
+                    if (intent.resolveActivity(packageManager) != null) {
+                        startActivity(intent)
+                    }
+                }
+            } catch (_: Exception) {
+                Log.w("MainActivity", "Battery optimization request failed")
             }
         }
 
-        // Auto-start if already configured
+        // Auto-start if already configured (skip if service already running)
         val savedId = prefs.getString("device_id", null)
-        if (!savedId.isNullOrBlank()) {
-            startService()
+        if (!savedId.isNullOrBlank() && !isServiceRunning()) {
+            try {
+                startService()
+            } catch (e: Exception) {
+                Log.e("MainActivity", "Auto-start failed: ${e.message}", e)
+                Toast.makeText(this, "自动启动失败，请手动点击启动", Toast.LENGTH_LONG).show()
+            }
         }
     }
 
@@ -136,8 +146,13 @@ class MainActivity : AppCompatActivity() {
     }
 
     private fun isServiceRunning(): Boolean {
-        val am = getSystemService(ACTIVITY_SERVICE) as android.app.ActivityManager
-        val services = am.getRunningServices(Integer.MAX_VALUE)
-        return services.any { it.service.className == TvRemoteService::class.java.name }
+        return try {
+            val am = getSystemService(ACTIVITY_SERVICE) as android.app.ActivityManager
+            val services = am.getRunningServices(Integer.MAX_VALUE)
+            services.any { it.service.className == TvRemoteService::class.java.name }
+        } catch (e: Exception) {
+            Log.w("MainActivity", "Cannot check service status: ${e.message}")
+            false
+        }
     }
 }
