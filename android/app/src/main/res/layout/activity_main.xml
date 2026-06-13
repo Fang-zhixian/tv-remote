@@ -1,0 +1,95 @@
+<?xml version="1.0" encoding="utf-8"?>
+<LinearLayout xmlns:android="http://schemas.android.com/apk/res/android"
+    android:layout_width="match_parent"
+    android:layout_height="match_parent"
+    android:background="#1a1a2e"
+    android:gravity="center"
+    android:orientation="vertical"
+    android:padding="32dp">
+
+    <TextView
+        android:layout_width="wrap_content"
+        android:layout_height="wrap_content"
+        android:text="📺 TV Remote"
+        android:textColor="#eee"
+        android:textSize="28sp"
+        android:textStyle="bold"
+        android:layout_marginBottom="32dp" />
+
+    <TextView
+        android:layout_width="wrap_content"
+        android:layout_height="wrap_content"
+        android:text="设备ID"
+        android:textColor="#999"
+        android:textSize="16sp" />
+
+    <EditText
+        android:id="@+id/etDeviceId"
+        android:layout_width="match_parent"
+        android:layout_height="wrap_content"
+        android:background="#0f3460"
+        android:hint="输入设备ID"
+        android:inputType="text"
+        android:maxLines="1"
+        android:padding="12dp"
+        android:textColor="#eee"
+        android:textColorHint="#666"
+        android:layout_marginTop="8dp"
+        android:layout_marginBottom="16dp" />
+
+    <TextView
+        android:layout_width="wrap_content"
+        android:layout_height="wrap_content"
+        android:text="MQTT Broker"
+        android:textColor="#999"
+        android:textSize="16sp" />
+
+    <EditText
+        android:id="@+id/etBrokerUrl"
+        android:layout_width="match_parent"
+        android:layout_height="wrap_content"
+        android:background="#0f3460"
+        android:hint="tcp://broker.emqx.io:1883"
+        android:inputType="textUri"
+        android:maxLines="1"
+        android:padding="12dp"
+        android:textColor="#eee"
+        android:textColorHint="#666"
+        android:layout_marginTop="8dp"
+        android:layout_marginBottom="24dp" />
+
+    <TextView
+        android:id="@+id/tvStatus"
+        android:layout_width="wrap_content"
+        android:layout_height="wrap_content"
+        android:text="状态：未运行"
+        android:textColor="#777"
+        android:textSize="16sp"
+        android:layout_marginBottom="24dp" />
+
+    <LinearLayout
+        android:layout_width="match_parent"
+        android:layout_height="wrap_content"
+        android:gravity="center"
+        android:orientation="horizontal">
+
+        <Button
+            android:id="@+id/btnStart"
+            android:layout_width="0dp"
+            android:layout_height="48dp"
+            android:layout_weight="1"
+            android:text="启动服务"
+            android:textSize="16sp"
+            android:layout_marginEnd="8dp" />
+
+        <Button
+            android:id="@+id/btnStop"
+            android:layout_width="0dp"
+            android:layout_height="48dp"
+            android:layout_weight="1"
+            android:text="停止服务"
+            android:textSize="16sp"
+            android:enabled="false" />
+    </LinearLayout>
+
+</LinearLayout>

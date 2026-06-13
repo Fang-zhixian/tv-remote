@@ -1,0 +1,339 @@
+<!DOCTYPE html>
+<html lang="zh-CN">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0, maximum-scale=1.0, user-scalable=no">
+<title>TV Remote</title>
+<style>
+* { margin: 0; padding: 0; box-sizing: border-box; }
+body {
+  font-family: -apple-system, BlinkMacSystemFont, 'Segoe UI', Roboto, sans-serif;
+  background: #1a1a2e;
+  color: #eee;
+  display: flex;
+  justify-content: center;
+  min-height: 100vh;
+  -webkit-tap-highlight-color: transparent;
+  user-select: none; -webkit-user-select: none;
+}
+.container {
+  width: 100%; max-width: 420px;
+  padding: 12px;
+  display: flex; flex-direction: column; gap: 10px;
+}
+
+/* Connection */
+.conn-panel {
+  background: #16213e; border-radius: 12px; padding: 10px 14px;
+  display: flex; align-items: center; gap: 10px;
+}
+.conn-panel input {
+  flex: 1; background: #0f3460; border: 1px solid #1a5276;
+  border-radius: 8px; color: #eee; padding: 8px 12px; font-size: 14px; min-width: 0;
+}
+.conn-panel input::placeholder { color: #777; }
+.conn-panel button {
+  background: #e94560; color: #fff; border: none;
+  border-radius: 8px; padding: 8px 16px; font-size: 14px; cursor: pointer; white-space: nowrap;
+}
+.conn-panel button.connected { background: #27ae60; }
+.status-dot {
+  width: 12px; height: 12px; border-radius: 50%; background: #555; flex-shrink: 0;
+}
+.status-dot.online { background: #2ecc71; box-shadow: 0 0 8px #2ecc71; }
+.status-dot.offline { background: #e74c3c; box-shadow: 0 0 8px #e74c3c; }
+
+/* Stream (touchable!) */
+.stream-area {
+  background: #111; border-radius: 12px;
+  aspect-ratio: 16 / 9;
+  display: flex; align-items: center; justify-content: center;
+  overflow: hidden; position: relative;
+  cursor: crosshair;
+}
+.stream-area img {
+  width: 100%; height: 100%; object-fit: contain;
+  pointer-events: none; /* let clicks through to parent */
+}
+.stream-area .placeholder { color: #555; font-size: 14px; }
+.stream-badge {
+  position: absolute; top: 8px; left: 8px;
+  background: rgba(0,0,0,0.7); border-radius: 6px;
+  padding: 4px 10px; font-size: 11px;
+  display: flex; align-items: center; gap: 6px;
+  pointer-events: none;
+}
+.stream-badge .live-dot {
+  width: 8px; height: 8px; border-radius: 50%;
+  background: #e74c3c; animation: pulse 1s infinite;
+}
+.stream-badge.live .live-dot { background: #2ecc71; }
+@keyframes pulse { 0%,100%{opacity:1} 50%{opacity:.3} }
+.fps-counter { color: #aaa; font-size: 11px; margin-left: 4px; }
+
+/* Tap ripple */
+.tap-ripple {
+  position: absolute; border-radius: 50%;
+  background: rgba(255,255,255,0.4);
+  transform: scale(0); animation: ripple 0.4s ease-out forwards;
+  pointer-events: none;
+}
+@keyframes ripple { to { transform: scale(2); opacity: 0; } }
+
+/* Hint */
+.tap-hint {
+  position: absolute; bottom: 6px; left: 50%; transform: translateX(-50%);
+  color: rgba(255,255,255,0.5); font-size: 11px;
+  pointer-events: none;
+}
+
+/* Hardware buttons row */
+.hw-row {
+  display: flex; gap: 8px; justify-content: center;
+}
+.hw-btn {
+  flex: 1; background: #16213e; border: 1px solid #1a5276;
+  border-radius: 10px; padding: 10px 8px; font-size: 13px; color: #ccc;
+  cursor: pointer; text-align: center;
+  display: flex; align-items: center; justify-content: center; gap: 4px;
+  transition: background 0.1s;
+}
+.hw-btn:active { background: #0f3460; }
+.hw-btn.power { border-color: #8b2a2a; min-width: 50px; }
+</style>
+</head>
+<body>
+<div class="container">
+  <!-- Connection -->
+  <div class="conn-panel">
+    <div class="status-dot" id="statusDot"></div>
+    <input type="text" id="deviceId" placeholder="设备ID" maxlength="32" autocomplete="off">
+    <button id="btnConnect" onclick="toggleConnect()">连接</button>
+  </div>
+
+  <!-- Stream (tap on it!) -->
+  <div class="stream-area" id="streamArea" onclick="onTapStream(event)">
+    <span class="placeholder" id="streamPlaceholder">等待连接...</span>
+    <img id="streamImg" alt="live stream" style="display:none">
+    <div class="stream-badge" id="streamBadge" style="display:none">
+      <span class="live-dot"></span>
+      <span id="streamLabel">LIVE</span>
+      <span class="fps-counter" id="fpsCounter"></span>
+    </div>
+    <div class="tap-hint" id="tapHint" style="display:none">点击画面 = 遥控触摸</div>
+  </div>
+
+  <!-- Hardware buttons -->
+  <div class="hw-row">
+    <button class="hw-btn" onpointerdown="sendCmd('back')">◁ 返回</button>
+    <button class="hw-btn" onpointerdown="sendCmd('home')">⌂ 主页</button>
+    <button class="hw-btn power" onpointerdown="sendCmd('power')">⏻ 电源</button>
+  </div>
+</div>
+
+<script src="https://unpkg.com/mqtt/dist/mqtt.min.js"></script>
+<script>
+let client = null;
+let deviceId = '';
+let lastFrameUrl = null;
+let tvWidth = 1920, tvHeight = 1080; // updated from TV status
+
+const TOPIC_CMD = id => `tvremote/${id}/cmd`;
+const TOPIC_SCREEN = id => `tvremote/${id}/screen`;
+const TOPIC_STATUS = id => `tvremote/${id}/status`;
+const TOPIC_STREAM_START = id => `tvremote/${id}/stream_start`;
+const TOPIC_STREAM_STOP = id => `tvremote/${id}/stream_stop`;
+
+const $statusDot = document.getElementById('statusDot');
+const $deviceId = document.getElementById('deviceId');
+const $btnConnect = document.getElementById('btnConnect');
+const $streamImg = document.getElementById('streamImg');
+const $streamPlaceholder = document.getElementById('streamPlaceholder');
+const $streamBadge = document.getElementById('streamBadge');
+const $streamLabel = document.getElementById('streamLabel');
+const $fpsCounter = document.getElementById('fpsCounter');
+const $tapHint = document.getElementById('tapHint');
+const $streamArea = document.getElementById('streamArea');
+
+let fpsFrames = 0, fpsLastTime = 0;
+
+const savedId = localStorage.getItem('tv_device_id');
+if (savedId) $deviceId.value = savedId;
+
+function toggleConnect() {
+  if (client && client.connected) disconnect(); else connect();
+}
+
+function connect() {
+  deviceId = $deviceId.value.trim();
+  if (!deviceId) { alert('请输入设备ID'); return; }
+  localStorage.setItem('tv_device_id', deviceId);
+
+  client = mqtt.connect('ws://broker.emqx.io:8083/mqtt', {
+    clientId: 'web_' + Math.random().toString(16).slice(2,10),
+    keepalive: 30, clean: true
+  });
+
+  client.on('connect', () => {
+    client.subscribe(TOPIC_STATUS(deviceId));
+    client.subscribe(TOPIC_SCREEN(deviceId));
+    client.publish(TOPIC_STREAM_START(deviceId), '1');
+    updateStatus(true);
+    showStreamStatus('connecting');
+  });
+
+  client.on('message', (topic, payload) => {
+    if (topic === TOPIC_STATUS(deviceId)) {
+      try {
+        const s = JSON.parse(payload.toString());
+        if (s.width && s.height) { tvWidth = s.width; tvHeight = s.height; }
+        if (s.status === 'online') { /* TV is online */ }
+        else showStreamStatus('connecting');
+      } catch(_) {
+        if (payload.toString() === 'offline') showStreamStatus('connecting');
+      }
+    } else if (topic === TOPIC_SCREEN(deviceId)) {
+      onFrame(payload);
+    }
+  });
+
+  client.on('close', () => { updateStatus(false); showStreamStatus('off'); });
+  client.on('error', () => { updateStatus(false); showStreamStatus('off'); });
+  client.on('offline', () => { updateStatus(false); showStreamStatus('off'); });
+}
+
+function disconnect() {
+  if (client) {
+    client.publish(TOPIC_STREAM_STOP(deviceId), '1');
+    client.end(true); client = null;
+  }
+  if (lastFrameUrl) { URL.revokeObjectURL(lastFrameUrl); lastFrameUrl = null; }
+  updateStatus(false); showStreamStatus('off');
+  $tapHint.style.display = 'none';
+}
+
+// ── Tap on stream → send to TV ──────────────────────────────
+
+function onTapStream(e) {
+  if (!client || !client.connected) return;
+  const rect = $streamArea.getBoundingClientRect();
+  const clickX = e.clientX - rect.left;
+  const clickY = e.clientY - rect.top;
+
+  // Map click position → image display position → TV coordinates
+  // The image uses object-fit:contain, so there may be letterboxing
+  const areaW = rect.width, areaH = rect.height;
+  const imgRatio = tvWidth / tvHeight;
+  const areaRatio = areaW / areaH;
+
+  let imgW, imgH, offsetX = 0, offsetY = 0;
+  if (areaRatio > imgRatio) {
+    // area is wider → image centered horizontally, fills vertically
+    imgH = areaH;
+    imgW = imgH * imgRatio;
+    offsetX = (areaW - imgW) / 2;
+  } else {
+    // area is taller → image centered vertically, fills horizontally
+    imgW = areaW;
+    imgH = imgW / imgRatio;
+    offsetY = (areaH - imgH) / 2;
+  }
+
+  // Convert click to image-local coordinates
+  const imgX = clickX - offsetX;
+  const imgY = clickY - offsetY;
+
+  // Clamp to image bounds
+  if (imgX < 0 || imgY < 0 || imgX > imgW || imgY > imgH) return;
+
+  // Map to TV coordinates
+  const tvX = Math.round(imgX / imgW * tvWidth);
+  const tvY = Math.round(imgY / imgH * tvHeight);
+
+  // Ripple animation
+  showTapRipple(clickX, clickY);
+
+  // Send tap command
+  client.publish(TOPIC_CMD(deviceId),
+    JSON.stringify({ action: 'tap', data: { x: tvX, y: tvY } }));
+}
+
+function showTapRipple(x, y) {
+  const ripple = document.createElement('div');
+  ripple.className = 'tap-ripple';
+  ripple.style.left = x + 'px';
+  ripple.style.top = y + 'px';
+  ripple.style.width = ripple.style.height = '24px';
+  ripple.style.marginLeft = '-12px';
+  ripple.style.marginTop = '-12px';
+  $streamArea.appendChild(ripple);
+  setTimeout(() => ripple.remove(), 400);
+}
+
+// ── Frame display ───────────────────────────────────────────
+
+function onFrame(payload) {
+  let bytes;
+  if (payload instanceof Uint8Array) bytes = payload;
+  else if (Array.isArray(payload)) bytes = new Uint8Array(payload);
+  else if (payload.buffer) bytes = new Uint8Array(payload.buffer, payload.byteOffset||0, payload.byteLength||payload.length);
+  else return;
+
+  const blob = new Blob([bytes], { type: 'image/jpeg' });
+  const url = URL.createObjectURL(blob);
+  const prevUrl = lastFrameUrl;
+  $streamImg.onload = () => { if (prevUrl) URL.revokeObjectURL(prevUrl); $streamImg.onload = null; };
+  $streamImg.src = url;
+  lastFrameUrl = url;
+
+  $streamImg.style.display = 'block';
+  $streamPlaceholder.style.display = 'none';
+  $tapHint.style.display = 'block';
+  showStreamStatus('live');
+
+  const now = performance.now();
+  fpsFrames++;
+  if (now - fpsLastTime >= 1000) {
+    $fpsCounter.textContent = fpsFrames + ' fps';
+    fpsFrames = 0; fpsLastTime = now;
+  }
+}
+
+function showStreamStatus(state) {
+  switch (state) {
+    case 'live':
+      $streamBadge.style.display = 'flex';
+      $streamBadge.className = 'stream-badge live';
+      $streamLabel.textContent = 'LIVE';
+      break;
+    case 'connecting':
+      $streamBadge.style.display = 'flex';
+      $streamBadge.className = 'stream-badge';
+      $streamLabel.textContent = '等待画面...';
+      $fpsCounter.textContent = '';
+      break;
+    case 'off':
+      $streamBadge.style.display = 'none';
+      $streamImg.style.display = 'none';
+      $streamPlaceholder.style.display = 'block';
+      $streamPlaceholder.textContent = '未连接';
+      $fpsCounter.textContent = '';
+      if (lastFrameUrl) { URL.revokeObjectURL(lastFrameUrl); lastFrameUrl = null; }
+      break;
+  }
+}
+
+function updateStatus(online) {
+  $statusDot.className = online ? 'status-dot online' : 'status-dot offline';
+  $btnConnect.textContent = online ? '断开' : '连接';
+  $btnConnect.className = online ? 'connected' : '';
+  if (online) $streamPlaceholder.textContent = '等待画面...';
+}
+
+function sendCmd(action) {
+  if (!client || !client.connected) return;
+  client.publish(TOPIC_CMD(deviceId), JSON.stringify({ action, data: {} }));
+}
+</script>
+</body>
+</html>
