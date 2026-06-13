@@ -31,16 +31,35 @@ object ScreenshotHelper {
         return captureRaw(MAX_WIDTH_STREAM, quality)
     }
 
+    // Temp file path (in app-private cache, no external storage needed)
+    private val tempFile = java.io.File(
+        android.os.Environment.getDataDirectory(),
+        "data/com.tvremote/cache/screen.png"
+    )
+
     private fun captureRaw(maxWidth: Int, quality: Int): ByteArray? {
         return try {
-            // screencap to stdout pipe (no temp file)
-            val process = Runtime.getRuntime().exec(arrayOf("screencap", "-p"))
+            tempFile.parentFile?.mkdirs()
+
+            // screencap to temp file (more reliable than pipe on TV devices)
+            val capProc = Runtime.getRuntime().exec(arrayOf("screencap", "-p", tempFile.absolutePath))
+            val exitCode = capProc.waitFor()
+            if (exitCode != 0) {
+                Log.e(TAG, "screencap failed, exit=$exitCode")
+                return null
+            }
+            if (!tempFile.exists()) {
+                Log.e(TAG, "screencap file not created: ${tempFile.absolutePath}")
+                return null
+            }
+
             val opts = BitmapFactory.Options()
-            val bitmap = BitmapFactory.decodeStream(process.inputStream, null, opts)
-            process.waitFor()
+            opts.inPreferredConfig = Bitmap.Config.RGB_565
+            val bitmap = BitmapFactory.decodeFile(tempFile.absolutePath, opts)
+            tempFile.delete()
 
             if (bitmap == null) {
-                Log.e(TAG, "Failed to decode screenshot from pipe")
+                Log.e(TAG, "Failed to decode screenshot from file")
                 return null
             }
 
